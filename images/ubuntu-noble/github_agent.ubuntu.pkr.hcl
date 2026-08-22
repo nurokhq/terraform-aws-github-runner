@@ -170,6 +170,16 @@ build {
       "sudo ./aws/install",
       "sudo apt-get -y install g++-aarch64-linux-gnu gcc-aarch64-linux-gnu build-essential libssl-dev pkg-config libclang-dev cmake",
 
+      # Seed GitHub's SSH host keys into the system-wide known_hosts so that
+      # git-over-SSH (submodule clones) can verify github.com without relying on
+      # any Action to populate known_hosts at run time. webfactory/ssh-agent
+      # stopped seeding these in v0.8.0; GitHub-hosted runners ship them
+      # pre-trusted. Keys come over authenticated HTTPS from GitHub's meta API
+      # (not ssh-keyscan, which is MITM-susceptible). The ssh-keygen lookup
+      # exits non-zero -- failing the build -- if the seed did not land.
+      "curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | \"github.com \" + .' | sudo tee /etc/ssh/ssh_known_hosts > /dev/null",
+      "sudo ssh-keygen -F github.com -f /etc/ssh/ssh_known_hosts",
+
     ], var.custom_shell_commands)
   }
 
