@@ -15,15 +15,14 @@
     "all": "yarn build && yarn format && yarn lint && yarn test"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.155",
-    "@types/node": "^22.18.8",
-    "body-parser": "^2.2.0"
+    "@types/aws-lambda": "^8.10.159",
+    "@types/node": "^22.19.3",
+    "body-parser": "^2.4.0"
   },
   "dependencies": {
-    "@aws-lambda-powertools/logger": "^2.27.0",
-    "@aws-lambda-powertools/metrics": "^2.27.0",
-    "@aws-lambda-powertools/tracer": "^2.27.0",
-    "aws-lambda": "^1.0.7"
+    "@aws-lambda-powertools/logger": "^2.31.0",
+    "@aws-lambda-powertools/metrics": "^2.31.0",
+    "@aws-lambda-powertools/tracer": "^2.31.0"
   },
   "nx": {
     "includedScripts": [

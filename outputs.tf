@@ -44,10 +44,14 @@ output "webhook" {
 }
 
 output "ssm_parameters" {
-  value = { for k, v in local.github_app_parameters : k => {
-    name = v.name
-    arn  = v.arn
-    }
+  value = {
+    id             = { name = local.github_app_parameters.id.name, arn = local.github_app_parameters.id.arn }
+    key_base64     = { name = local.github_app_parameters.key_base64.name, arn = local.github_app_parameters.key_base64.arn }
+    webhook_secret = { name = local.github_app_parameters.webhook_secret.name, arn = local.github_app_parameters.webhook_secret.arn }
+    additional_apps_manifest = local.github_app_parameters.additional_apps_manifest != null ? {
+      name = local.github_app_parameters.additional_apps_manifest.name
+      arn  = local.github_app_parameters.additional_apps_manifest.arn
+    } : null
   }
 }
 
@@ -74,17 +78,4 @@ output "instance_termination_handler" {
     lambda_log_group = module.instance_termination_watcher[0].spot_termination_handler.lambda_log_group
     lambda_role      = module.instance_termination_watcher[0].spot_termination_handler.lambda_role
   } : null
-}
-
-output "deprecated_variables_warning" {
-  description = "Warning for deprecated variables usage. These variables will be removed in a future release. Please migrate to using the consolidated 'ami' object."
-  value = join("", [
-    # Show object migration warning only when ami is null and old variables are used
-    var.ami == null ? join("", [
-      (var.ami_filter != { state = ["available"] } || var.ami_owners != ["amazon"] || var.ami_kms_key_arn != null) ?
-      "DEPRECATION WARNING: You are using the deprecated AMI variables (ami_filter, ami_owners, ami_kms_key_arn). These variables will be removed in a future version. Please migrate to using the consolidated 'ami' object.\n" : "",
-    ]) : "",
-    # Always show warning for ami_id_ssm_parameter_name to migrate to ami_id_ssm_parameter_arn
-    var.ami_id_ssm_parameter_name != null ? "DEPRECATION WARNING: The variable 'ami_id_ssm_parameter_name' is deprecated and will be removed in a future version. Please use 'ami.id_ssm_parameter_arn' instead.\n" : ""
-  ])
 }

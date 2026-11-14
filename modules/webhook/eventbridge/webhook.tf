@@ -1,3 +1,7 @@
+locals {
+  webhook_lambda_name = "${var.config.prefix}-webhook"
+}
+
 resource "null_resource" "github_app_parameters" {
   triggers = {
     github_app_webhook_secret_name = var.config.github_app_parameters.webhook_secret.name
@@ -10,20 +14,21 @@ resource "aws_lambda_function" "webhook" {
   s3_object_version = var.config.lambda_s3_object_version != null ? var.config.lambda_s3_object_version : null
   filename          = var.config.lambda_s3_bucket == null ? local.lambda_zip : null
   source_code_hash  = var.config.lambda_s3_bucket == null ? filebase64sha256(local.lambda_zip) : null
-  function_name     = "${var.config.prefix}-webhook"
+  function_name     = local.webhook_lambda_name
   role              = aws_iam_role.webhook_lambda.arn
   handler           = "index.eventBridgeWebhook"
   runtime           = var.config.lambda_runtime
   memory_size       = var.config.lambda_memory_size
   timeout           = var.config.lambda_timeout
   architectures     = [var.config.lambda_architecture]
+  depends_on        = [aws_cloudwatch_log_group.webhook]
 
   environment {
-    variables = {
+    variables = merge({
       for k, v in {
-        LOG_LEVEL                                = var.config.log_level
+        LOG_LEVEL                                = upper(var.config.log_level)
         POWERTOOLS_LOGGER_LOG_EVENT              = var.config.log_level == "debug" ? "true" : "false"
-        POWERTOOLS_SERVICE_NAME                  = "webhook"
+        POWERTOOLS_SERVICE_NAME                  = "${var.config.prefix}-webhook"
         POWERTOOLS_TRACE_ENABLED                 = var.config.tracing_config.mode != null ? true : false
         POWERTOOLS_TRACER_CAPTURE_HTTPS_REQUESTS = var.config.tracing_config.capture_http_requests
         POWERTOOLS_TRACER_CAPTURE_ERROR          = var.config.tracing_config.capture_error
@@ -31,9 +36,9 @@ resource "aws_lambda_function" "webhook" {
         ACCEPT_EVENTS                        = jsonencode(var.config.accept_events)
         EVENT_BUS_NAME                       = aws_cloudwatch_event_bus.main.name
         PARAMETER_GITHUB_APP_WEBHOOK_SECRET  = var.config.github_app_parameters.webhook_secret.name
-        PARAMETER_RUNNER_MATCHER_CONFIG_PATH = var.config.ssm_parameter_runner_matcher_config.name
+        PARAMETER_RUNNER_MATCHER_CONFIG_PATH = join(":", [for p in var.config.ssm_parameter_runner_matcher_config : p.name])
       } : k => v if v != null
-    }
+    })
   }
 
   dynamic "vpc_config" {
@@ -59,9 +64,10 @@ resource "aws_lambda_function" "webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "webhook" {
-  name              = "/aws/lambda/${aws_lambda_function.webhook.function_name}"
+  name              = "/aws/lambda/${local.webhook_lambda_name}"
   retention_in_days = var.config.logging_retention_in_days
   kms_key_id        = var.config.logging_kms_key_id
+  log_group_class   = var.config.log_class
   tags              = var.config.tags
 }
 
@@ -133,7 +139,7 @@ resource "aws_iam_role_policy" "webhook_kms" {
   role = aws_iam_role.webhook_lambda.name
 
   policy = templatefile("${path.module}/../policies/lambda-kms.json", {
-    kms_key_arn = var.config.kms_key_arn != null ? var.config.kms_key_arn : "arn:${var.config.aws_partition}:kms:::CMK_NOT_IN_USE"
+    kms_key_arn = var.config.storage_provider.aws.ssm.kms_key_id != null ? var.config.storage_provider.aws.ssm.kms_key_id : "arn:${var.config.aws_partition}:kms:::CMK_NOT_IN_USE"
   })
 }
 

@@ -9,9 +9,10 @@ variable "config" {
     `lambda_principals`: Add extra principals to the role created for execution of the lambda, e.g. for local testing.
     `lambda_tags`: Map of tags that will be added to created resources. By default resources will be tagged with name and environment.
     `log_level`: Logging level for lambda logging. Valid values are  'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'.
+    `log_class`: The log class of the CloudWatch log group. Valid values are `STANDARD` or `INFREQUENT_ACCESS`.
     `logging_kms_key_id`: Specifies the kms key id to encrypt the logs with
     `logging_retention_in_days`: Specifies the number of days you want to retain log events for the lambda log group. Possible values are: 0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, and 3653.
-    `memory_size`: Memory size linit in MB of the lambda.
+    `memory_size`: Memory size limit in MB of the lambda.
     `prefix`: The prefix used for naming resources.
     `role_path`: The path that will be added to the role, if not set the environment name will be used.
     `role_permissions_boundary`: Permissions boundary that will be added to the created role for the lambda.
@@ -26,6 +27,10 @@ variable "config" {
     `timeout`: Time out of the lambda in seconds.
     `tracing_config`: Configuration for lambda tracing.
     `zip`: File location of the lambda zip file.
+    `enable_runner_deregistration`: Enable or disable deregistering the runner from GitHub when its EC2 instance is terminated.
+    `github_app_parameters`: GitHub App SSM parameters (`id` and `key_base64`, each a map of `arn`/`name`) used to authenticate to GitHub when deregistering runners. Optional `additional_apps_manifest` (`name`/`arn`) and `additional_app_parameter_arns` enable credentials from the multi-App manifest.
+    `github_app_kms_key_arn`: ARN of the KMS key encrypting the GitHub App SSM parameters. When set and runner deregistration is enabled, the Lambda roles are allowed `kms:Decrypt` on this key.
+    `ghes_url`: GitHub Enterprise Server URL used to target the GHES API when deregistering runners. Leave `null` for github.com.
   EOF
   type = object({
     aws_partition         = optional(string, null)
@@ -37,6 +42,7 @@ variable "config" {
     }), {})
     lambda_tags               = optional(map(string), {})
     log_level                 = optional(string, null)
+    log_class                 = optional(string, "STANDARD")
     logging_kms_key_id        = optional(string, null)
     logging_retention_in_days = optional(number, null)
     memory_size               = optional(number, null)
@@ -69,6 +75,15 @@ variable "config" {
       capture_http_requests = optional(bool, false)
       capture_error         = optional(bool, false)
     }), {})
-    zip = optional(string, null)
+    zip                          = optional(string, null)
+    enable_runner_deregistration = optional(bool, false)
+    github_app_parameters = optional(object({
+      id                            = map(string)
+      key_base64                    = map(string)
+      additional_apps_manifest      = optional(object({ name = string, arn = string }))
+      additional_app_parameter_arns = optional(list(string), [])
+    }), null)
+    github_app_kms_key_arn = optional(string, null)
+    ghes_url               = optional(string, null)
   })
 }

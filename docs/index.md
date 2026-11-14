@@ -1,13 +1,13 @@
 # GitHub Self-Hosted on AWS on Spot Instances
 
-This [Terraform](https://www.terraform.io/) module creates the required infrastructure needed to host [GitHub Actions](https://github.com/features/actions) self-hosted, auto-scaling runners on [AWS spot instances](https://aws.amazon.com/ec2/spot/). It provides the required logic to handle the life cycle for scaling up and down using a set of AWS Lambda functions. Runners are scaled down to zero to avoid costs when no workflows are active.
+This [Terraform](https://www.terraform.io/) module creates the required infrastructure needed to host [GitHub Actions](https://github.com/features/actions) self-hosted, auto-scaling runners on [AWS spot instances](https://aws.amazon.com/ec2/spot/). It provides the required logic to handle the lifecycle for scaling up and down using a set of AWS Lambda functions. Runners are scaled down to zero to avoid costs when no workflows are active.
 
 ![Architecture](assets/runners.light.png#only-light)
 ![Architecture](assets/runners.dark.png#only-dark)
 
 ## Motivation
 
-GitHub Actions `self-hosted` runners provide a flexible option to run CI workloads on the infrastructure of your choice. However, currently GitHub does not provide tooling to automate the creation and scaling of action runners. This module creates the AWS infrastructure to host action runners on spot instances. It also provides lambda modules to orchestrate the life cycle of the action runners.
+GitHub Actions `self-hosted` runners provide a flexible option to run CI workloads on the infrastructure of your choice. However, currently GitHub does not provide tooling to automate the creation and scaling of action runners. This module creates the AWS infrastructure to host action runners on spot instances. It also provides lambda modules to orchestrate the lifecycle of the action runners.
 
 Lambda was selected as the preferred runtime for two primary reasons. Firstly, it enables the development of compact components with limited access to AWS and GitHub. Secondly, it offers a scalable configuration with minimal expenses, applicable at both the repository and organizational levels. The Lambda functions will be responsible for provisioning Linux-based EC2 instances equipped with Docker to handle CI workloads compatible with Linux and/or Docker. The primary objective is to facilitate Docker-based workloads.
 
@@ -20,6 +20,70 @@ The module is designed to be used in a GitHub organization. It can also be used 
 For ephemeral runners a pool can be configured. The pool maintains a minimum number of runners based on a schedule. The pool works only for org level runners.
 
 For non ephemeral runners with the idle config the module will avoid scaling down back to zero. Instead it will maintain a minimum number of runners based on a schedule. This avoids the need to scale up when a new workflow is triggered.
+
+### Scale-set orchestration (experimental)
+
+Multi-runner v2 can select the experimental scale-set orchestration provider for a
+runner lane. Scale-set orchestration uses a long-running ECS Fargate controller
+instead of webhook events and Lambda scale-up/scale-down handlers. The
+controller maintains a message session with GitHub, reconciles the desired
+capacity reported by the scale-set API, and delegates runner provisioning to the
+selected compute provider.
+
+The controller flow is:
+
+1. Terraform creates one ECS service, task definition, task role, execution
+   role, log group, security group, and SSM configuration set for each resolved
+   controller group.
+2. The controller loads non-secret configuration from its task manifest or SSM
+   group path. GitHub App values remain in caller-managed SSM parameters and
+   only their names are passed to the task.
+3. The controller resolves the configured GitHub scale set by name, registers
+   it when absent, opens its message session, and reconciles capacity through
+   the compute provider. The TypeScript controller owns those runtime API
+   operations; Terraform only provisions AWS and never calls the GitHub
+   scale-set API. Terraform destroy stops reconciliation without issuing a
+   GitHub delete.
+4. The compute provider creates, refreshes, and removes runner capacity. For
+   EC2, JIT configuration and instance lifecycle remain provider-owned.
+
+The request and lifecycle path is:
+
+```mermaid
+flowchart LR
+    TF[Terraform\nmulti-runner v2] --> ECS[ECS Fargate\nscale-set controller]
+    TF --> SSM[(SSM\nconfig and secret references)]
+    ECS -->|GitHub App auth| API[GitHub Actions\nscale-set APIs]
+    API -->|desired capacity and jobs| ECS
+    ECS -->|JIT configuration| EC2[EC2 compute provider]
+    EC2 -->|runner registration| API
+    ECS -->|scale-up / scale-down| EC2
+    EC2 -->|terminate owned capacity| EC2
+```
+
+The controller is long-lived and does not receive `workflow_job` webhooks. It
+opens a GitHub scale-set message session, acknowledges and processes messages,
+then passes desired capacity and busy-runner information to the compute
+provider. The EC2 provider publishes JIT configuration through SSM, launches
+the runner instance, and later removes only its owned runner capacity when the
+scale-set session reports that it is safe to scale down.
+
+The service is compatible with the wire behavior implemented by the upstream
+[GitHub Actions scale-set client](https://github.com/actions/scaleset). Its
+HTTP paths, message-session behavior, statistics handling, and User-Agent
+requirements were implemented by reverse-engineering that Go client and its
+protocol behavior. This is a compatibility boundary rather than a promise that
+the upstream internal API is stable; validate changes in `actions/scaleset`
+before upgrading the controller image.
+
+Controller groups can be formed per compute-provider type, per runner config,
+or through explicit custom membership. Grouping shares a task and IAM policy,
+so split groups when blast radius or policy size must be reduced. This provider
+is experimental: callers must supply an explicit controller image, use the
+scale-set configuration contract, and verify the current provider and GitHub
+API limitations before production use. See the [scale-set module
+documentation](https://github.com/github-aws-runners/terraform-aws-github-runner/blob/main/modules/orchestration-providers/scale-set/README.md) and the
+[v1-to-v2 configuration guide](multi-runner-v1-to-v2-configuration.md).
 
 
 ## Detailed design
@@ -79,7 +143,7 @@ The Instance Termination Watcher is creating log and optional metrics for termin
 
     This feature is Beta, changes will not trigger a major release as long in beta.
 
-The Job Retry will allow you to retry scaling when a job is not started. When enabled the scale up lambda will send a retry message to the a SQS queue. The Job Retry lambda will check after a delay if the job is still queued, and if so, it will send a retry command to the scale up lambda via SQS. The feature is designed to be used with ephemeral runners. The feature is opt in, it will not be created by default.
+The Job Retry will allow you to retry scaling when a job is not started. When enabled the scale up lambda will send a retry message to the SQS queue. The Job Retry lambda will check after a delay if the job is still queued, and if so, it will send a retry command to the scale up lambda via SQS. The feature is designed to be used with ephemeral runners. The feature is opt in, it will not be created by default.
 
 Consequences of enabling the feature are:
 
