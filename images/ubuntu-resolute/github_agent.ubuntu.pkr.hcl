@@ -189,6 +189,8 @@ build {
       # config.sh records sudo's secure_path as the job PATH; GitHub-hosted runners put ~/.cargo/bin on it.
       "printf '%s\\n' 'Defaults secure_path=\"/home/ubuntu/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\"' | sudo tee /etc/sudoers.d/runner-path > /dev/null",
       "sudo chmod 0440 /etc/sudoers.d/runner-path",
+      # GitHub-hosted runners ship rustup with a full stable toolchain; proto alone installs one without rustc or cargo.
+      "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable -c rustfmt -c clippy",
 
     ], var.custom_shell_commands)
   }
@@ -242,6 +244,7 @@ build {
       "test -x /var/lib/cloud/scripts/per-boot/start-runner.sh",
       "grep -q 'resolute' /etc/os-release",
       "sudo -u ubuntu -- sh -c 'echo $PATH' | grep -q '^/home/ubuntu/.cargo/bin:'",
+      "cd /tmp && sudo -u ubuntu -H -- sh -c 'cargo --version && rustc --version && cargo clippy --version && cargo fmt --version'",
     ]
   }
 
