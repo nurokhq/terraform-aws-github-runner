@@ -186,6 +186,10 @@ build {
       "curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | \"github.com \" + .' | sudo tee /etc/ssh/ssh_known_hosts > /dev/null",
       "sudo ssh-keygen -F github.com -f /etc/ssh/ssh_known_hosts",
 
+      # config.sh records sudo's secure_path as the job PATH; GitHub-hosted runners put ~/.cargo/bin on it.
+      "printf '%s\\n' 'Defaults secure_path=\"/home/ubuntu/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\"' | sudo tee /etc/sudoers.d/runner-path > /dev/null",
+      "sudo chmod 0440 /etc/sudoers.d/runner-path",
+
     ], var.custom_shell_commands)
   }
 
@@ -237,6 +241,7 @@ build {
       "grep -qx 'ImageOS=ubuntu26' /opt/actions-runner/.env",
       "test -x /var/lib/cloud/scripts/per-boot/start-runner.sh",
       "grep -q 'resolute' /etc/os-release",
+      "sudo -u ubuntu -- sh -c 'echo $PATH' | grep -q '^/home/ubuntu/.cargo/bin:'",
     ]
   }
 
